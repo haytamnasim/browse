@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>🔥 FireBrowser</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔥</text></svg>">
+  <style>
+    :root{--bg:#121212;--fg:#eee;--panel:#1e1e1e;--accent:#2b90ff;--font:Inter,system-ui,Arial,sans-serif}
+    body.light{--bg:#f5f5f5;--fg:#222;--panel:#fff;--accent:#0969da}
+    *{box-sizing:border-box;font-family:var(--font);color:var(--fg)}
+    html,body{height:100%;margin:0;background:var(--bg)}
+    .topbar{display:flex;gap:6px;padding:8px;background:var(--panel);align-items:center}
+    button{padding:6px 10px;border:0;border-radius:6px;background:var(--accent);color:#fff;cursor:pointer}
+    input[type=text]{flex:1;padding:8px;border:0;border-radius:6px;background:var(--panel);color:var(--fg)}
+    #url{width:100%}
+    #tabs{display:flex;gap:4px;padding:6px;background:#000;overflow:auto}
+    .tab{padding:6px 10px;border-radius:6px;background:var(--panel);cursor:pointer;white-space:nowrap;position:relative}
+    .tab.active{background:var(--accent);color:#000}
+    .tab .x{margin-left:6px;font-weight:bold}
+    #content{display:flex;height:calc(100vh - 130px)}
+    iframe{flex:1;border:0;background:#fff}
+    #sidebar{width:320px;background:var(--panel);padding:10px;overflow:auto;display:flex;flex-direction:column;gap:12px}
+    .row{display:flex;gap:6px;align-items:center}
+    .list{background:var(--bg);padding:8px;border-radius:6px;max-height:120px;overflow:auto}
+    .small{font-size:12px;opacity:.7}
+    .hidden{display:none}
+    #kimiPanel{border-top:1px solid #333;padding-top:10px}
+    #kimiMessages{height:180px;overflow:auto;background:#0d0d0d;padding:8px;border-radius:6px;margin-bottom:6px}
+    .msg.user{color:#8be9fd;text-align:right}
+    .msg.assistant{color:#f8f8f2;text-align:left}
+  </style>
+</head>
+<body class="dark">
+<div class="topbar">
+  <button id="back">⬅</button><button id="fwd">➡</button><button id="reload">↻</button>
+  <input id="url" type="text" placeholder="Search Google or type URL">
+  <button id="go">Go</button>
+  <button id="newTab">+ Tab</button>
+  <button id="fs">⛶</button>
+  <button id="theme">🌓</button>
+  <button id="kimiToggle">💬 Kimi</button>
+</div>
+<div id="tabs"></div>
+<div id="content">
+  <iframe id="frame" sandbox="allow-scripts allow-forms allow-same-origin"></iframe>
+  <div id="sidebar">
+    <div class="section">
+      <div class="row"><label>Bookmarks</label><button id="addBm">+</button></div>
+      <div class="list" id="bookmarks"></div>
+    </div>
+    <div class="section">
+      <div class="row"><label>Downloads</label></div>
+      <div class="list" id="downloads"></div>
+    </div>
+    <div id="kimiPanel" class="section hidden">
+      <label>Ask Kimi</label>
+      <div id="kimiMessages"></div>
+      <textarea id="kimiInput" placeholder="Type your question…" style="width:100%;height:60px"></textarea>
+      <div class="row">
+        <button id="kimiSend">Send</button>
+        <button id="kimiClear">Clear</button>
+      </div>
+    </div>
+    <div class="section">
+      <label>Custom proxy (optional)</label>
+      <input id="customProxy" type="text" placeholder="https://your-proxy/?url=">
+    </div>
+    <div class="section">
+      <label>Start page</label>
+      <input id="startPage" type="text" placeholder="https://www.google.com/?pws=0">
+      <button id="setStart">Set</button>
+    </div>
+  </div>
+</div>
+<script>
+let tabs=[],active=null,bookmarks=[],startPage="https://www.google.com/?pws=0",customProxy="";
+const store={get:k=>localStorage.getItem(k),set:(k,v)=>localStorage.setItem(k,v)};
+try{bookmarks=JSON.parse(store.get("fb-bm")||"[]");startPage=store.get("fb-start")||startPage;customProxy=store.get("fb-proxy")||"";}catch{}
+const $=q=>document.querySelector(q);
+const el=(t,h="")=>{const e=document.createElement(t);e.innerHTML=h;return e;};
+function newTab(url=startPage){
+  const id=Date.now().toString(36);
+  tabs.push({id,url,title:url,history:[url],idx:0});
+  active=id;renderTabs();loadTab(id);
+}
+function renderTabs(){
+  const bar=$("#tabs");bar.innerHTML="";
+  tabs.forEach(t=>{
+    const tab=el("div",`<span>${t.title.slice(0,25)}</span><span class="x" data-id="${t.id}">×</span>`);
+    tab.className="tab"+(t.id===active?" active":"");
+    tab.onclick=e=>{if(!e.target.classList.contains("x"))loadTab(t.id)};
+    tab.querySelector(".x").onclick=e=>{e.stopPropagation();closeTab(t.id)};
+    bar.appendChild(tab);
+  });
+}
+function closeTab(id){
+  tabs=tabs.filter(t=>t.id!==id);
+  if(active===id){active=tabs[0]?.id||null;}
+  if(!active&&tabs.length)newTab();else renderTabs();
+}
+async function loadTab(id){
+  active=id;const t=tabs.find(x=>x.id===id);
+  if(!t)return;
+  $("#url").value=t.url;
+  const proxy=customProxy||"https://api.allorigins.win/raw?url=";
+  const enc=encodeURIComponent(t.url);
+  $("#frame").src=proxy+enc;
+  renderTabs();
+}
+function addBm(url,title){bookmarks.push({url,title:title||url});store.set("fb-bm",JSON.stringify(bookmarks));renderBm();}
+function renderBm(){
+  const b=$("#bookmarks");b.innerHTML="";
+  bookmarks.forEach((x,i)=>{
+    const row=el("div",`<span>${x.title}</span>`);
+    row.onclick=()=>navigate(x.url);
+    b.appendChild(row);
+  });
+}
+function addDownload(url){
+  const d=$("#downloads");d.appendChild(el("div",`<a href="${url}" target="_blank">${url.slice(-30)}</a>`));
+}
+function navigate(raw){
+  let url=raw.trim();
+  if(!url)return;
+  if(!/^https?:\/\//i.test(url))url="https://"+url;
+  if(url.includes(" "))url="https://www.google.com/search?q="+encodeURIComponent(url)+"&pws=0";
+  const t=tabs.find(x=>x.id===active);
+  if(!t)return;
+  if(t.history[t.idx]!==url){t.history.push(url);t.idx=t.history.length-1;}
+  t.url=url;t.title=url;loadTab(active);
+}
+function appendKimi(role,text){
+  const m=$("#kimiMessages"),div=el("div",`<div class="msg ${role}">${role==="user"?"You":"Kimi"}: ${text}</div>`);
+  m.appendChild(div);m.scrollTop=m.scrollHeight;
+}
+async function kimiAsk(){
+  const q=$("#kimiInput").value.trim();if(!q)return;
+  appendKimi("user",q);$("#kimiInput").value="";
+  appendKimi("assistant","…thinking…");
+  try{
+    const res=await fetch('https://kimi.moonshot.cn/api/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({question:q})});
+    const a=await res.text();
+    const nodes=$("#kimiMessages").querySelectorAll(".msg.assistant");
+    const last=nodes[nodes.length-1];
+    if(a)last.innerHTML="Kimi: "+a.slice(0,500);else last.innerHTML="Kimi: (no reply)";
+  }catch(e){
+    const nodes=$("#kimiMessages").querySelectorAll(".msg.assistant");
+    nodes[nodes.length-1].innerHTML="Kimi: error - "+e.message;
+  }
+}
+$("#go").onclick=()=>navigate($("#url").value);
+$("#url").onkeydown=e=>{if(e.key==="Enter")navigate($("#url").value)};
+$("#back").onclick=()=>{const t=tabs.find(x=>x.id===active);if(t&&t.idx>0){t.idx--;t.url=t.history[t.idx];loadTab(active);}};
+$("#fwd").onclick=()=>{const t=tabs.find(x=>x.id===active);if(t&&t.idx<t.history.length-1){t.idx++;t.url=t.history[t.idx];loadTab(active);}};
+$("#reload").onclick=()=>loadTab(active);
+$("#newTab").onclick=()=>newTab();
+$("#fs").onclick=()=>{if(!document.fullscreenElement)document.documentElement.requestFullscreen();else document.exitFullscreen();};
+$("#theme").onclick=()=>{document.body.classList.toggle("light");$("#theme").textContent=document.body.classList.contains("light")?"🌞":"🌓";};
+$("#kimiToggle").onclick=()=>{$("#kimiPanel").classList.toggle("hidden");};
+$("#kimiSend").onclick=kimiAsk;
+$("#kimiClear").onclick=()=>$("#kimiMessages").innerHTML="";
+$("#addBm").onclick=()=>{const url=$("#url").value;if(url)addBm(url);};
+$("#setStart").onclick=()=>{startPage=$("#startPage").value||startPage;store.set("fb-start",startPage);};
+$("#customProxy").onchange=()=>{customProxy=$("#customProxy").value;store.set("fb-proxy",customProxy);};
+$("#frame").onload=()=>{try{const t=tabs.find(x=>x.id===active);if(t){t.title=$("#frame").contentDocument?.title||t.url;renderTabs();}}catch{};};
+document.addEventListener("click",e=>{
+  const a=e.target.closest("a");if(!a||!a.href)return;
+  if(a.download||/\.(zip|exe|pdf|docx?|apk|mp4|mov|jpg|png)$/i.test(a.href))addDownload(a.href);
+},true);
+(()=>{
+  $("#customProxy").value=customProxy;
+  $("#startPage").value=startPage;
+  renderBm();
+  if(tabs.length===0)newTab();
+  else{active=tabs[0].id;renderTabs();loadTab(active);}
+})();
+</script>
+</body>
+</html>
